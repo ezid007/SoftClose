@@ -22,7 +22,7 @@ class VideoRecorder:
         self.is_running = False
         self.is_recording = False
         self.out = None
-        self.model = YOLO("yolo11n.pt")  # Load nano model for speed
+        self.model = YOLO("yolo11s.pt")  # Load small model for better accuracy
         self.last_motion_time = 0
         self.recording_start_time = 0
         self.frame_buffer = (
