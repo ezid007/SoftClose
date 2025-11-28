@@ -13,8 +13,8 @@ def ensure_smb_connection():
     Ensure SMB connection to DB server is established.
     This should be called once at startup.
     """
-    target_db_ip = os.getenv("DB_HOST", "192.168.0.192")
-    target_db_share = os.getenv("TARGET_DB_SERVER_SHARE", "cctv_db")
+    target_db_ip = os.getenv("DB_HOST")
+    target_db_share = os.getenv("TARGET_DB_SERVER_SHARE")
     smb_username = os.getenv("SMB_USERNAME")
     smb_password = os.getenv("SMB_PASSWORD")
 
@@ -125,9 +125,9 @@ def copy_to_server(file_path, max_db, db_threshold=50.0, server_path=None):
 
         # Step 2: Prepare DB server path with date folder (YYYYMMDD)
         if server_path is None:
-            target_db_ip = os.getenv("DB_HOST", "192.168.0.192")
-            target_db_share = os.getenv("TARGET_DB_SERVER_SHARE", "cctv_db")
-            target_db_subfolder = os.getenv("TARGET_DB_SERVER_SUBFOLDER", "video")
+            target_db_ip = os.getenv("DB_HOST")
+            target_db_share = os.getenv("TARGET_DB_SERVER_SHARE")
+            target_db_subfolder = os.getenv("TARGET_DB_SERVER_SUBFOLDER")
 
             # Extract date from filename (YYYYMMDD_HHMMSS.avi)
             date_folder = filename[:8]  # Get YYYYMMDD from filename

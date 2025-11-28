@@ -17,7 +17,7 @@ from datetime import datetime
 from file_manager import process_merged_video, ensure_smb_connection
 
 # Get DB save threshold from .env
-DB_SAVE_THRESHOLD = float(os.getenv("AUDIO_DB_SAVE_THRESHOLD", "50.0"))
+DB_SAVE_THRESHOLD = float(os.getenv("AUDIO_DB_SAVE_THRESHOLD"))
 
 
 class EndpointFilter(logging.Filter):
