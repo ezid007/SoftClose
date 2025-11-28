@@ -1,9 +1,44 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables
 .env
+.env.local
+
+# YOLO model files
 *.pt
+*.pth
+*.weights
+
+# Records and outputs
 records/
 audio_diagnostic.txt
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Poetry
+poetry.lock
