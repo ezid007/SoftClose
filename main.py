@@ -13,6 +13,11 @@ from video_recorder import VideoRecorder
 import logging
 from moviepy import VideoFileClip, AudioFileClip
 import os
+from datetime import datetime
+from file_manager import process_merged_video, ensure_smb_connection
+
+# Get DB save threshold from .env
+DB_SAVE_THRESHOLD = float(os.getenv("AUDIO_DB_SAVE_THRESHOLD", "50.0"))
 
 
 class EndpointFilter(logging.Filter):
@@ -46,6 +51,9 @@ async def lifespan(app: FastAPI):
 
     # Filter out /status logs
     logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+
+    # Establish SMB connection to DB server
+    ensure_smb_connection()
 
     init_db()
 
@@ -136,6 +144,19 @@ async def lifespan(app: FastAPI):
 
             print(f"Merge complete: {output_path}")
 
+            # Process merged video: rename and transfer to DB server if dB > threshold
+            max_db = audio_rec.max_db_recorded
+            print(f"Max dB recorded: {max_db:.1f}")
+            print(f"DB save threshold: {DB_SAVE_THRESHOLD}")
+
+            final_path = process_merged_video(
+                output_path,
+                start_time,
+                max_db,
+                db_threshold=DB_SAVE_THRESHOLD,
+                server_path=None,
+            )
+
             # Log merged file to database
             from video_recorder import WIDTH, HEIGHT, FPS
             from db_manager import log_event
@@ -143,13 +164,13 @@ async def lifespan(app: FastAPI):
             metadata = {"width": WIDTH, "height": HEIGHT, "fps": FPS}
 
             log_event(
-                f"{audio_rec.max_db_recorded:.1f}dB",
-                output_path,
+                f"{max_db:.1f}dB",
+                final_path,
                 start_time,
                 end_time,
                 metadata,
             )
-            print(f"Logged to database: {output_path}")
+            print(f"Logged to database: {final_path}")
 
             # Delete original files after successful merge
             try:
