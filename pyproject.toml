@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "local-cctv-system"
+version = "0.1.0"
+description = "Local CCTV system with Audio Ring Buffer and YOLOv11 Video Detection"
+authors = ["Antigravity <antigravity@example.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+ultralytics = "^8.3.0"
+opencv-python = "^4.10.0"
+psycopg2 = "^2.9.9"
+numpy = "^1.26.0"
+python-dotenv = "^1.0.0"
+fastapi = "^0.122.0"
+uvicorn = "^0.38.0"
+pyaudio = "^0.2.14"
+moviepy = "^2.2.1"
+jinja2 = "^3.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
