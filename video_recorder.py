@@ -22,7 +22,7 @@ class VideoRecorder:
         self.is_running = False
         self.is_recording = False
         self.out = None
-        self.model = YOLO("yolo11s.pt")  # Load small model for better accuracy
+        self.model = YOLO("yolo11n.pt")  # Load nano model for speed
         self.last_motion_time = 0
         self.recording_start_time = 0
         self.frame_buffer = (
@@ -36,6 +36,7 @@ class VideoRecorder:
         self.audio_recorder = (
             audio_recorder  # Reference to audio recorder for dB display
         )
+        self.flip_horizontal = True  # Toggle for horizontal flip
 
     def set_stop_callback(self, callback):
         self.on_stop_callback = callback
@@ -68,10 +69,10 @@ class VideoRecorder:
     def monitor_loop(self):
         """Main loop for video processing."""
         ret, frame1 = self.cap.read()
-        if ret:
+        if ret and self.flip_horizontal:
             frame1 = cv2.flip(frame1, 1)
         ret, frame2 = self.cap.read()
-        if ret:
+        if ret and self.flip_horizontal:
             frame2 = cv2.flip(frame2, 1)
 
         while self.is_running and self.cap.isOpened():
@@ -146,7 +147,7 @@ class VideoRecorder:
             # Prepare for next iteration
             frame1 = frame2
             ret, frame2 = self.cap.read()
-            if ret:
+            if ret and self.flip_horizontal:
                 frame2 = cv2.flip(frame2, 1)
 
             # Small sleep to match FPS if needed, but processing usually takes time
@@ -194,6 +195,13 @@ class VideoRecorder:
                 ret, buffer = cv2.imencode(".jpg", self.current_frame)
                 return buffer.tobytes()
             return None
+
+    def toggle_flip(self):
+        """Toggle horizontal flip on/off."""
+        self.flip_horizontal = not self.flip_horizontal
+        status = "ON" if self.flip_horizontal else "OFF"
+        print(f"Horizontal flip toggled: {status}")
+        return self.flip_horizontal
 
 
 if __name__ == "__main__":

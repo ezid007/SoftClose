@@ -249,6 +249,12 @@ async def toggle_power():
     return JSONResponse({"status": status})
 
 
+@app.post("/toggle_flip")
+async def toggle_flip():
+    flip_status = video_rec.toggle_flip()
+    return JSONResponse({"flip_horizontal": flip_status})
+
+
 @app.get("/audio_waveform")
 async def audio_waveform():
     """Returns recent audio waveform data for visualization."""
