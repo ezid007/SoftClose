@@ -100,6 +100,10 @@ def copy_to_server(file_path, max_db, db_threshold=50.0, server_path=None):
         print(f"Skipping copy: dB level {max_db:.1f} is below threshold {db_threshold}")
         return file_path
 
+    print(
+        f"dB level {max_db:.1f} >= threshold {db_threshold}, proceeding with copy to DB server..."
+    )
+
     # Setup folder structure
     base_dir = os.path.dirname(os.path.dirname(file_path))  # records/
     transferring_dir = os.path.join(base_dir, "transferring")
