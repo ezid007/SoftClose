@@ -25,9 +25,8 @@ class VideoRecorder:
         self.model = YOLO("yolo11n.pt")  # Load nano model for speed
         self.last_motion_time = 0
         self.recording_start_time = 0
-        self.frame_buffer = (
-            []
-        )  # Optional: Pre-record buffer if needed, but user didn't explicitly ask for video pre-record, only audio.
+        self.frame_buffer = []  # Pre-record buffer for smooth video start
+        self.frame_buffer_size = 30  # ~1 second buffer at 30 FPS
         self.current_frame = None  # For GUI to access
         self.person_currently_detected = False  # Track if person is currently detected
         self.lock = threading.Lock()
@@ -134,6 +133,11 @@ class VideoRecorder:
                     cv2.LINE_AA,
                 )
 
+            # Store frames in buffer for pre-recording
+            if len(self.frame_buffer) >= self.frame_buffer_size:
+                self.frame_buffer.pop(0)
+            self.frame_buffer.append(annotated_frame.copy())
+
             if self.is_recording:
                 self.out.write(annotated_frame)
                 # Stop recording if no person for 5 seconds
@@ -172,9 +176,16 @@ class VideoRecorder:
             self.is_recording = False
             return
 
+        # Write pre-buffer frames for smooth start
+        for buffered_frame in self.frame_buffer:
+            self.out.write(buffered_frame)
+        print(f"Wrote {len(self.frame_buffer)} pre-buffer frames")
+
         self.current_filename = filename
         self.current_filepath = filepath
-        print(f"Started video recording: {filename}")
+        print(
+            f"Started video recording at {self.real_start_time.strftime('%H:%M:%S.%f')}: {filename}"
+        )
 
     def stop_recording(self):
         self.is_recording = False

@@ -191,15 +191,18 @@ class AudioRecorder:
                 print(f"Error in audio loop: {e}")
                 break
 
-    def start_recording(self, db_level):
-        """Initiates the recording process."""
+    def start_recording(self, db_level, start_time=None):
+        """Initiates the recording process at exact timestamp."""
         if self.is_recording:
             return
-        print(f"DEBUG: start_recording called with level {db_level}")
+        self.recording_start_time = start_time if start_time else datetime.now()
+        print(
+            f"DEBUG: start_recording called at {self.recording_start_time.strftime('%H:%M:%S.%f')}"
+        )
         self.is_recording = True
         self.max_db_recorded = 0  # Reset peak dB for new recording
-        self.recording_frames = []  # Start fresh, no pre-recording
-        print(f"DEBUG: Started recording (No pre-buffer)")
+        self.recording_frames = []  # Start fresh - no pre-buffer for perfect sync
+        print(f"DEBUG: Started recording (No pre-buffer for exact sync)")
         self.remaining_chunks = int(RATE / CHUNK * RECORD_SECONDS)
         self.trigger_desc = f"{db_level:.1f}dB Noise Detected"
 

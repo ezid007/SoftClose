@@ -80,11 +80,15 @@ async def lifespan(app: FastAPI):
         # Start Video if not recording
         if not video_rec.is_recording:
             print("Person detected! Starting video and audio recording...")
+            # Get exact timestamp for sync
+            start_time = datetime.now()
+
+            # Start both recordings with same timestamp
             video_rec.start_recording()
 
-            # Force start audio recording even if quiet
+            # Force start audio recording with exact same timestamp
             if not audio_rec.is_recording:
-                audio_rec.start_recording(db_level=0)  # 0dB as placeholder
+                audio_rec.start_recording(db_level=0, start_time=start_time)
         else:
             # Extend video recording
             video_rec.last_motion_time = time.time()

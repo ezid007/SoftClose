@@ -90,9 +90,20 @@ def log_event(peak, file_path, start_time=None, end_time=None, metadata=None):
     # Determine AM/PM based on hour
     am_pm = "AM" if event_time.hour < 12 else "PM"
 
-    # Extract time only (HH:MM:SS) from datetime
-    start_time_only = start_time.time() if start_time else None
-    end_time_only = end_time.time() if end_time else None
+    # Extract time only (HH:MM:SS) from datetime and convert to 12-hour format
+    if start_time:
+        start_hour = start_time.hour
+        start_hour_12 = start_hour % 12 if start_hour % 12 != 0 else 12
+        start_time_only = start_time.replace(hour=start_hour_12).time()
+    else:
+        start_time_only = None
+
+    if end_time:
+        end_hour = end_time.hour
+        end_hour_12 = end_hour % 12 if end_hour % 12 != 0 else 12
+        end_time_only = end_time.replace(hour=end_hour_12).time()
+    else:
+        end_time_only = None
 
     # Ensure the table exists for this date
     init_db(table_name)
