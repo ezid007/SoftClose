@@ -62,7 +62,7 @@ class VideoRecorder:
         self.audio_recorder = (
             audio_recorder  # Reference to audio recorder for dB display
         )
-        self.flip_horizontal = True  # Toggle for horizontal flip
+        self.flip_horizontal = False  # Toggle for horizontal flip (default: OFF)
         self.consecutive_person_frames = 0  # debounce counter
         self.required_person_frames = 3  # require N consecutive frames
 
@@ -75,6 +75,7 @@ class VideoRecorder:
         self.temporal_smoothed_frame = None  # For EMA temporal smoothing
         self.consecutive_motion_frames = 0  # Motion persistence counter
         self.morphology_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        self.is_paused = False  # Pause state (camera stays open but processing stops)
 
     def set_stop_callback(self, callback):
         self.on_stop_callback = callback
@@ -84,25 +85,98 @@ class VideoRecorder:
 
     def start(self):
         """Starts the video monitoring in a separate thread."""
-        if self.is_running:
+        # If already running, do nothing
+        if self.is_running and not self.is_paused:
             return
 
         self.is_running = True
-        self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-        self.cap.set(cv2.CAP_PROP_FPS, FPS)
+        self.is_paused = False
 
+        # Only open camera if not already open
+        if self.cap is None or not self.cap.isOpened():
+            self.cap = cv2.VideoCapture(0)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+            self.cap.set(cv2.CAP_PROP_FPS, FPS)
+
+        # Always start a new monitor thread
         threading.Thread(target=self.monitor_loop, daemon=True).start()
         print("Video monitoring started.")
 
     def stop(self):
-        """Stops the video monitoring."""
+        """Pauses the video monitoring (camera stays open for quick resume)."""
         self.is_running = False
+        self.is_paused = True
+        if self.is_recording:
+            self.stop_recording()
+        # Set standby frame instead of None
+        with self.lock:
+            self.current_frame = self._create_standby_frame()
+        print("Video monitoring paused.")
+
+    def _create_standby_frame(self):
+        """Creates a standby screen to show when paused."""
+        # Create dark frame
+        frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+        frame[:] = (30, 30, 30)  # Dark gray background
+
+        # Add text
+        text = "STANDBY"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 2
+        thickness = 3
+
+        # Get text size for centering
+        (text_width, text_height), baseline = cv2.getTextSize(
+            text, font, font_scale, thickness
+        )
+        x = (WIDTH - text_width) // 2
+        y = (HEIGHT + text_height) // 2
+
+        # Draw text with glow effect
+        cv2.putText(
+            frame,
+            text,
+            (x, y),
+            font,
+            font_scale,
+            (0, 80, 0),
+            thickness + 2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame, text, (x, y), font, font_scale, (0, 180, 0), thickness, cv2.LINE_AA
+        )
+
+        # Add subtitle
+        sub_text = "Press ON to resume"
+        sub_scale = 0.7
+        (sub_width, sub_height), _ = cv2.getTextSize(sub_text, font, sub_scale, 1)
+        sub_x = (WIDTH - sub_width) // 2
+        sub_y = y + 50
+        cv2.putText(
+            frame,
+            sub_text,
+            (sub_x, sub_y),
+            font,
+            sub_scale,
+            (100, 100, 100),
+            1,
+            cv2.LINE_AA,
+        )
+
+        return frame
+
+    def shutdown(self):
+        """Fully stops and releases camera (call on app exit)."""
+        self.is_running = False
+        self.is_paused = False
         if self.is_recording:
             self.stop_recording()
         if self.cap:
             self.cap.release()
+            self.cap = None
+        print("Video monitoring stopped and camera released.")
 
     def monitor_loop(self):
         """Main loop for video processing."""
@@ -236,7 +310,8 @@ class VideoRecorder:
                         self.on_person_detected_callback()
             else:
                 self.consecutive_person_frames = 0
-                self.person_currently_detected = False
+                # Don't immediately set person_currently_detected to False
+                # Let it stay True until recording stops (for 5 second grace period)
 
             # Add dB overlay to frame (BEFORE writing to file)
             if self.audio_recorder:
@@ -261,6 +336,7 @@ class VideoRecorder:
                 self.out.write(annotated_frame)
                 # Stop recording if no person for 5 seconds
                 if time.time() - self.last_motion_time > 5:
+                    self.person_currently_detected = False  # Reset only when stopping
                     self.stop_recording()
 
             # Update current frame for GUI
@@ -283,9 +359,10 @@ class VideoRecorder:
         # Ensure directory exists
         os.makedirs(RECORD_DIR, exist_ok=True)
 
-        filename = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.avi"
+        # Use MP4 format with H264 codec for better compatibility and sync
+        filename = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         filepath = os.path.join(RECORD_DIR, filename)
-        fourcc = cv2.VideoWriter_fourcc(*"XVID")
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # or 'avc1' for H264
         self.out = cv2.VideoWriter(filepath, fourcc, FPS, (WIDTH, HEIGHT))
 
         if not self.out.isOpened():
@@ -295,9 +372,16 @@ class VideoRecorder:
             return
 
         # Write pre-buffer frames for smooth start
+        # Track how many pre-buffer frames were written for audio sync
+        self.pre_buffer_frames = len(self.frame_buffer)
         for buffered_frame in self.frame_buffer:
             self.out.write(buffered_frame)
-        print(f"Wrote {len(self.frame_buffer)} pre-buffer frames")
+
+        # Calculate pre-buffer duration in seconds for audio alignment
+        self.pre_buffer_duration = self.pre_buffer_frames / FPS
+        print(
+            f"Wrote {self.pre_buffer_frames} pre-buffer frames ({self.pre_buffer_duration:.2f}s)"
+        )
 
         self.current_filename = filename
         self.current_filepath = filepath
@@ -323,7 +407,11 @@ class VideoRecorder:
             if self.current_frame is not None:
                 ret, buffer = cv2.imencode(".jpg", self.current_frame)
                 return buffer.tobytes()
-            return None
+            else:
+                # Return standby frame if no current frame
+                standby = self._create_standby_frame()
+                ret, buffer = cv2.imencode(".jpg", standby)
+                return buffer.tobytes()
 
     def toggle_flip(self):
         """Toggle horizontal flip on/off."""

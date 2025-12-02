@@ -4,6 +4,7 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>문살살 CCTV</title>
+        <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
         <style>
             /* Webfont: Noto Sans KR for Korean text rendering */
             @import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap");
@@ -99,6 +100,9 @@
                 color: #888;
                 font-weight: bold;
             }
+            .label.active {
+                color: #ffffff;
+            }
         </style>
     </head>
     <body>
@@ -116,7 +120,7 @@
             <div class="status-bar" id="db-display">현재 소음: 0 dB</div>
 
             <div class="controls">
-                <span class="label">POWER</span>
+                <span class="label" id="on-label">ON</span>
                 <button
                     class="power-btn on"
                     id="power-btn"
@@ -128,14 +132,10 @@
                         />
                     </svg>
                 </button>
-                <span class="label">ON OFF</span>
+                <span class="label" id="off-label">OFF</span>
 
                 <span class="label" style="margin-left: 30px">좌우반전</span>
-                <button
-                    class="power-btn on"
-                    id="flip-btn"
-                    onclick="toggleFlip()"
-                >
+                <button class="power-btn" id="flip-btn" onclick="toggleFlip()">
                     <svg viewBox="0 0 24 24">
                         <path
                             d="M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8 20h2V1h-2v22zm8-6h2v-2h-2v2zM15 5h2V3h-2v2zm4 8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2z"
@@ -205,10 +205,16 @@
                             "db-display"
                         ).innerText = `현재 소음: ${data.db} dB`;
                         const btn = document.getElementById("power-btn");
+                        const onLabel = document.getElementById("on-label");
+                        const offLabel = document.getElementById("off-label");
                         if (data.is_running) {
                             btn.classList.add("on");
+                            onLabel.classList.add("active");
+                            offLabel.classList.remove("active");
                         } else {
                             btn.classList.remove("on");
+                            onLabel.classList.remove("active");
+                            offLabel.classList.add("active");
                         }
                     });
             }

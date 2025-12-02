@@ -83,12 +83,19 @@ async def lifespan(app: FastAPI):
             # Get exact timestamp for sync
             start_time = datetime.now()
 
-            # Start both recordings with same timestamp
+            # Start video first to get pre-buffer duration
             video_rec.start_recording()
 
-            # Force start audio recording with exact same timestamp
+            # Get the pre-buffer duration from video recorder
+            video_pre_buffer = getattr(video_rec, "pre_buffer_duration", 1.0)
+
+            # Start audio with matching pre-buffer for perfect sync
             if not audio_rec.is_recording:
-                audio_rec.start_recording(db_level=0, start_time=start_time)
+                audio_rec.start_recording(
+                    db_level=0,
+                    start_time=start_time,
+                    pre_buffer_seconds=video_pre_buffer,
+                )
         else:
             # Extend video recording
             video_rec.last_motion_time = time.time()
@@ -111,6 +118,14 @@ async def lifespan(app: FastAPI):
             else datetime.now()
         )
 
+        # Get pre-buffer info for potential sync adjustment
+        video_pre_buffer = getattr(video_rec, "pre_buffer_duration", 0.0)
+        audio_pre_buffer = getattr(audio_rec, "pre_buffer_seconds", 0.0)
+        sync_offset = video_pre_buffer - audio_pre_buffer
+        print(
+            f"Pre-buffer sync: video={video_pre_buffer:.2f}s, audio={audio_pre_buffer:.2f}s, offset={sync_offset:.3f}s"
+        )
+
         # Stop audio and get path
         audio_path = audio_rec.stop_recording()
 
@@ -127,20 +142,41 @@ async def lifespan(app: FastAPI):
             video_clip = VideoFileClip(video_path)
             audio_clip = AudioFileClip(audio_path)
 
+            # Apply sync offset if there's a significant difference
+            # Positive offset means audio needs to be delayed (trimmed from start)
+            # Negative offset means audio starts too late (pad or adjust)
+            if abs(sync_offset) > 0.05:  # Only adjust if > 50ms difference
+                if sync_offset > 0 and audio_clip.duration > sync_offset:
+                    # Audio started earlier, trim the beginning
+                    print(f"Adjusting audio: trimming {sync_offset:.3f}s from start")
+                    audio_clip = audio_clip.subclipped(sync_offset, audio_clip.duration)
+
             # Trim audio to match video duration if needed
             if audio_clip.duration > video_clip.duration:
                 audio_clip = audio_clip.subclipped(0, video_clip.duration)
 
+            # If audio is shorter, it will just end early (acceptable)
+
             final_clip = video_clip.with_audio(audio_clip)
 
-            # Save merged file
+            # Save merged file as MP4
             merge_dir = os.path.abspath(os.path.join("records", "merged"))
             os.makedirs(merge_dir, exist_ok=True)
 
-            output_filename = f"merged_{os.path.basename(video_path)}"
+            # Ensure output is MP4
+            base_name = os.path.splitext(os.path.basename(video_path))[0]
+            output_filename = f"merged_{base_name}.mp4"
             output_path = os.path.join(merge_dir, output_filename)
 
-            final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+            # Use optimized settings for better sync and quality
+            final_clip.write_videofile(
+                output_path,
+                codec="libx264",
+                audio_codec="aac",
+                fps=video_clip.fps,  # Preserve original FPS
+                preset="medium",  # Balance speed/quality
+                audio_bitrate="128k",
+            )
 
             # Close clips to release files
             video_clip.close()
@@ -204,11 +240,14 @@ async def lifespan(app: FastAPI):
     video_rec.set_person_detected_callback(None)
     video_rec.set_stop_callback(None)
 
-    video_rec.stop()
-    audio_rec.stop()
+    video_rec.shutdown()  # Fully release camera on app exit
+    audio_rec.shutdown()  # Fully release audio on app exit
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Mount static files for favicon and other assets
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Setup templates
 templates = Jinja2Templates(directory="templates")

@@ -28,6 +28,7 @@ class AudioRecorder:
         self.stream = None
         self.frames = deque(maxlen=int(RATE / CHUNK * BUFFER_SECONDS))
         self.is_running = False
+        self.is_paused = False  # Pause state for quick resume
         self.is_recording = False
         self.recording_frames = []
         self.remaining_chunks = 0
@@ -35,6 +36,7 @@ class AudioRecorder:
         self.on_trigger_callback = None
         self.current_db = 0
         self.max_db_recorded = 0
+        self.pre_buffer_seconds = 0.0  # Track pre-buffer duration used
 
     def set_trigger_callback(self, callback):
         """Sets the callback function to be called when audio threshold is exceeded."""
@@ -73,10 +75,20 @@ class AudioRecorder:
 
     def start(self):
         """Starts the audio monitoring in a separate thread."""
-        if self.is_running:
+        # If already running, do nothing
+        if self.is_running and not self.is_paused:
+            return
+
+        # If resuming from pause, just restart the loop
+        if self.is_paused and self.stream is not None:
+            self.is_running = True
+            self.is_paused = False
+            threading.Thread(target=self.monitor_loop, daemon=True).start()
+            print("Audio monitoring resumed.")
             return
 
         self.is_running = True
+        self.is_paused = False
         device_index = os.getenv("AUDIO_DEVICE_INDEX")
         if device_index is not None:
             device_index = int(device_index)
@@ -138,13 +150,29 @@ class AudioRecorder:
                     self.is_running = False
 
     def stop(self):
-        """Stops the audio monitoring."""
+        """Pauses the audio monitoring (stream stays open for quick resume)."""
         self.is_running = False
-        self.on_trigger_callback = None  # Disable callback
+        self.is_paused = True
+        # Don't disable callback - keep it for resume
+        # Don't close stream - keep it open for quick resume
 
         # Save current recording if in progress
         if self.is_recording:
-            print("Saving current audio recording before stopping...")
+            print("Saving current audio recording before pausing...")
+            self.save_recording()
+            self.is_recording = False
+
+        self.current_db = 0  # Reset dB display
+        print("Audio monitoring paused.")
+
+    def shutdown(self):
+        """Fully stops and releases audio resources (call on app exit)."""
+        self.is_running = False
+        self.is_paused = False
+        self.on_trigger_callback = None
+
+        if self.is_recording:
+            print("Saving current audio recording before shutdown...")
             self.save_recording()
             self.is_recording = False
 
@@ -155,7 +183,7 @@ class AudioRecorder:
             except Exception as e:
                 print(f"Error closing stream: {e}")
         self.p.terminate()
-        print("Audio monitoring stopped.")
+        print("Audio monitoring stopped and resources released.")
 
     def monitor_loop(self):
         """Main loop for monitoring audio and triggering recording."""
@@ -191,8 +219,8 @@ class AudioRecorder:
                 print(f"Error in audio loop: {e}")
                 break
 
-    def start_recording(self, db_level, start_time=None):
-        """Initiates the recording process at exact timestamp."""
+    def start_recording(self, db_level, start_time=None, pre_buffer_seconds=1.0):
+        """Initiates the recording process with pre-buffer matching video."""
         if self.is_recording:
             return
         self.recording_start_time = start_time if start_time else datetime.now()
@@ -201,8 +229,23 @@ class AudioRecorder:
         )
         self.is_recording = True
         self.max_db_recorded = 0  # Reset peak dB for new recording
-        self.recording_frames = []  # Start fresh - no pre-buffer for perfect sync
-        print(f"DEBUG: Started recording (No pre-buffer for exact sync)")
+
+        # Include audio pre-buffer to match video pre-buffer for sync
+        # This ensures audio and video start from the same point in time
+        self.pre_buffer_seconds = pre_buffer_seconds
+        pre_buffer_chunks = int(RATE / CHUNK * pre_buffer_seconds)
+
+        # Get the most recent chunks from the circular buffer
+        available_chunks = list(self.frames)
+        if len(available_chunks) >= pre_buffer_chunks:
+            self.recording_frames = available_chunks[-pre_buffer_chunks:]
+        else:
+            self.recording_frames = available_chunks.copy()
+
+        actual_pre_buffer = len(self.recording_frames) * CHUNK / RATE
+        print(
+            f"DEBUG: Started recording with {actual_pre_buffer:.2f}s audio pre-buffer (target: {pre_buffer_seconds:.2f}s)"
+        )
         self.remaining_chunks = int(RATE / CHUNK * RECORD_SECONDS)
         self.trigger_desc = f"{db_level:.1f}dB Noise Detected"
 

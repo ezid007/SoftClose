@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#2d2d2d" stroke="#4a9eff" stroke-width="2"/>
+  
+  <!-- Door frame -->
+  <rect x="18" y="12" width="28" height="42" rx="2" fill="#1a1a1a" stroke="#4a9eff" stroke-width="2"/>
+  
+  <!-- Door panel -->
+  <rect x="22" y="16" width="20" height="34" rx="1" fill="#3a3a3a" stroke="#5ab5ff" stroke-width="1"/>
+  
+  <!-- Door handle -->
+  <circle cx="38" cy="33" r="2.5" fill="#ffd700"/>
+  
+  <!-- Soft close indicator (curved arrow) -->
+  <path d="M44 20 Q52 26 48 34" stroke="#4ade80" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M46 31 L48 34 L51 32" stroke="#4ade80" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Text "SC" for SoftClose -->
+  <text x="32" y="48" text-anchor="middle" font-family="Arial" font-size="8" font-weight="bold" fill="#4a9eff">SC</text>
+</svg>
