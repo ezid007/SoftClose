@@ -36,6 +36,8 @@ class VideoRecorder:
             audio_recorder  # Reference to audio recorder for dB display
         )
         self.flip_horizontal = True  # Toggle for horizontal flip
+        self.consecutive_person_frames = 0  # debounce counter
+        self.required_person_frames = 3  # require N consecutive frames
 
     def set_stop_callback(self, callback):
         self.on_stop_callback = callback
@@ -89,34 +91,54 @@ class VideoRecorder:
             )
 
             motion_detected = False
+            motion_bboxes = []
             for contour in contours:
-                if cv2.contourArea(contour) > 900:  # Sensitivity threshold
+                if cv2.contourArea(contour) > 1500:  # increase sensitivity threshold
                     motion_detected = True
-                    break
+                    x, y, w, h = cv2.boundingRect(contour)
+                    motion_bboxes.append((x, y, x + w, y + h))
 
             person_detected = False
             annotated_frame = frame1.copy()
 
             # 2. YOLO Detection (Only if motion detected or already recording)
             if motion_detected or self.is_recording:
-                results = self.model(frame1, verbose=False, classes=[0])  # 0 is person
+                results = self.model(
+                    frame1, verbose=False, classes=[0], conf=0.5
+                )  # stricter confidence
 
-                # Check if person is detected
+                # Check if any detection overlaps with motion region
                 for result in results:
                     if len(result.boxes) > 0:
-                        person_detected = True
-                        annotated_frame = result.plot()  # Draw boxes
-                        break
+                        for box in result.boxes:
+                            x1, y1, x2, y2 = map(int, box.xyxy[0])
+                            # overlap with any motion bbox
+                            overlaps_motion = (
+                                any(
+                                    not (x2 < mx1 or x1 > mx2 or y2 < my1 or y1 > my2)
+                                    for (mx1, my1, mx2, my2) in motion_bboxes
+                                )
+                                if motion_bboxes
+                                else False
+                            )
+                            if overlaps_motion:
+                                person_detected = True
+                                break
+                        if person_detected:
+                            annotated_frame = result.plot()  # Draw boxes
+                            break
 
             # Recording Logic
             if person_detected:
-                self.person_currently_detected = True
-                self.last_motion_time = time.time()
-
-                # Notify main app to start recording if not already
-                if self.on_person_detected_callback:
-                    self.on_person_detected_callback()
+                self.consecutive_person_frames += 1
+                if self.consecutive_person_frames >= self.required_person_frames:
+                    self.person_currently_detected = True
+                    self.last_motion_time = time.time()
+                    # Notify main app to start recording if not already
+                    if self.on_person_detected_callback:
+                        self.on_person_detected_callback()
             else:
+                self.consecutive_person_frames = 0
                 self.person_currently_detected = False
 
             # Add dB overlay to frame (BEFORE writing to file)
