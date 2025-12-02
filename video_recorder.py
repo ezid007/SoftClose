@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 import threading
 import time
 import os
@@ -14,6 +15,32 @@ WIDTH = int(os.getenv("VIDEO_WIDTH"))
 HEIGHT = int(os.getenv("VIDEO_HEIGHT"))
 FPS = float(os.getenv("VIDEO_FPS"))
 RECORD_DIR = os.path.abspath(os.path.join("records", "video"))
+
+# Motion detection tuning (night noise reduction)
+MOTION_VAR_THRESHOLD = int(
+    os.getenv("VIDEO_MOTION_VAR_THRESHOLD", "40")
+)  # MOG2 variance threshold (higher = less sensitive)
+MOTION_HISTORY = int(os.getenv("VIDEO_MOTION_HISTORY", "500"))  # MOG2 history frames
+MOTION_MIN_AREA = int(
+    os.getenv("VIDEO_MOTION_MIN_AREA", "2000")
+)  # Minimum contour area
+MOTION_CONSECUTIVE_FRAMES = int(
+    os.getenv("VIDEO_MOTION_CONSECUTIVE_FRAMES", "2")
+)  # Required consecutive motion frames
+TEMPORAL_SMOOTHING_ALPHA = float(
+    os.getenv("VIDEO_TEMPORAL_ALPHA", "0.7")
+)  # EMA smoothing (0-1, lower = more smoothing)
+
+# YOLO detection tuning
+YOLO_CONFIDENCE = float(
+    os.getenv("VIDEO_YOLO_CONFIDENCE", "0.55")
+)  # Detection confidence threshold
+YOLO_MIN_BOX_AREA = int(
+    os.getenv("VIDEO_YOLO_MIN_BOX_AREA", "3000")
+)  # Minimum person box area in pixels
+YOLO_OVERLAP_RATIO = float(
+    os.getenv("VIDEO_YOLO_OVERLAP_RATIO", "0.2")
+)  # Min intersection ratio with motion
 
 
 class VideoRecorder:
@@ -38,6 +65,16 @@ class VideoRecorder:
         self.flip_horizontal = True  # Toggle for horizontal flip
         self.consecutive_person_frames = 0  # debounce counter
         self.required_person_frames = 3  # require N consecutive frames
+
+        # Night noise reduction components
+        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(
+            history=MOTION_HISTORY,
+            varThreshold=MOTION_VAR_THRESHOLD,
+            detectShadows=True,
+        )
+        self.temporal_smoothed_frame = None  # For EMA temporal smoothing
+        self.consecutive_motion_frames = 0  # Motion persistence counter
+        self.morphology_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
     def set_stop_callback(self, callback):
         self.on_stop_callback = callback
@@ -72,58 +109,118 @@ class VideoRecorder:
         ret, frame1 = self.cap.read()
         if ret and self.flip_horizontal:
             frame1 = cv2.flip(frame1, 1)
-        ret, frame2 = self.cap.read()
-        if ret and self.flip_horizontal:
-            frame2 = cv2.flip(frame2, 1)
 
         while self.is_running and self.cap.isOpened():
             if not ret:
                 break
 
-            # 1. Motion Detection
-            diff = cv2.absdiff(frame1, frame2)
-            gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
-            blur = cv2.GaussianBlur(gray, (5, 5), 0)
-            _, thresh = cv2.threshold(blur, 20, 255, cv2.THRESH_BINARY)
-            dilated = cv2.dilate(thresh, None, iterations=3)
+            # ========================================
+            # 1. Temporal Smoothing (Noise Reduction)
+            # ========================================
+            # Apply EMA (Exponential Moving Average) to reduce temporal noise
+            frame_float = frame1.astype(np.float32)
+            if self.temporal_smoothed_frame is None:
+                self.temporal_smoothed_frame = frame_float.copy()
+            else:
+                # Alpha controls smoothing: lower = more smoothing but more blur on motion
+                cv2.accumulateWeighted(
+                    frame_float, self.temporal_smoothed_frame, TEMPORAL_SMOOTHING_ALPHA
+                )
+
+            smoothed_frame = self.temporal_smoothed_frame.astype(np.uint8)
+
+            # ========================================
+            # 2. Motion Detection with MOG2
+            # ========================================
+            # MOG2 learns background adaptively, much better for varying lighting/noise
+            fg_mask = self.bg_subtractor.apply(smoothed_frame)
+
+            # Remove shadows (gray pixels in MOG2 mask = 127)
+            _, fg_mask = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
+
+            # Morphological operations to remove noise and fill gaps
+            # Opening removes small noise, Closing fills small holes
+            fg_mask = cv2.morphologyEx(
+                fg_mask, cv2.MORPH_OPEN, self.morphology_kernel, iterations=2
+            )
+            fg_mask = cv2.morphologyEx(
+                fg_mask, cv2.MORPH_CLOSE, self.morphology_kernel, iterations=2
+            )
+            fg_mask = cv2.dilate(fg_mask, self.morphology_kernel, iterations=1)
+
+            # Find contours in the cleaned mask
             contours, _ = cv2.findContours(
-                dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+                fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
 
-            motion_detected = False
+            frame_has_motion = False
             motion_bboxes = []
+            total_motion_area = 0
+
             for contour in contours:
-                if cv2.contourArea(contour) > 1500:  # increase sensitivity threshold
-                    motion_detected = True
+                area = cv2.contourArea(contour)
+                if area > MOTION_MIN_AREA:
+                    frame_has_motion = True
+                    total_motion_area += area
                     x, y, w, h = cv2.boundingRect(contour)
                     motion_bboxes.append((x, y, x + w, y + h))
+
+            # ========================================
+            # 3. Motion Persistence Filter
+            # ========================================
+            # Require consecutive frames with motion to avoid single-frame noise spikes
+            if frame_has_motion:
+                self.consecutive_motion_frames += 1
+            else:
+                self.consecutive_motion_frames = 0
+
+            motion_detected = (
+                self.consecutive_motion_frames >= MOTION_CONSECUTIVE_FRAMES
+            )
 
             person_detected = False
             annotated_frame = frame1.copy()
 
-            # 2. YOLO Detection (Only if motion detected or already recording)
+            # ========================================
+            # 4. YOLO Detection (Only if motion detected or already recording)
+            # ========================================
             if motion_detected or self.is_recording:
                 results = self.model(
-                    frame1, verbose=False, classes=[0], conf=0.5
-                )  # stricter confidence
+                    frame1, verbose=False, classes=[0], conf=YOLO_CONFIDENCE
+                )
 
                 # Check if any detection overlaps with motion region
                 for result in results:
                     if len(result.boxes) > 0:
                         for box in result.boxes:
                             x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            # overlap with any motion bbox
-                            overlaps_motion = (
-                                any(
-                                    not (x2 < mx1 or x1 > mx2 or y2 < my1 or y1 > my2)
-                                    for (mx1, my1, mx2, my2) in motion_bboxes
-                                )
-                                if motion_bboxes
-                                else False
-                            )
-                            if overlaps_motion:
+                            box_area = (x2 - x1) * (y2 - y1)
+
+                            # Filter out tiny detections (likely noise)
+                            if box_area < YOLO_MIN_BOX_AREA:
+                                continue
+
+                            # Calculate overlap ratio with motion regions
+                            best_overlap_ratio = 0.0
+                            for mx1, my1, mx2, my2 in motion_bboxes:
+                                # Calculate intersection
+                                ix1 = max(x1, mx1)
+                                iy1 = max(y1, my1)
+                                ix2 = min(x2, mx2)
+                                iy2 = min(y2, my2)
+
+                                if ix1 < ix2 and iy1 < iy2:
+                                    intersection = (ix2 - ix1) * (iy2 - iy1)
+                                    overlap_ratio = intersection / box_area
+                                    best_overlap_ratio = max(
+                                        best_overlap_ratio, overlap_ratio
+                                    )
+
+                            # Require minimum overlap ratio
+                            if best_overlap_ratio >= YOLO_OVERLAP_RATIO:
                                 person_detected = True
                                 break
+
                         if person_detected:
                             annotated_frame = result.plot()  # Draw boxes
                             break
@@ -171,10 +268,9 @@ class VideoRecorder:
                 self.current_frame = annotated_frame
 
             # Prepare for next iteration
-            frame1 = frame2
-            ret, frame2 = self.cap.read()
+            ret, frame1 = self.cap.read()
             if ret and self.flip_horizontal:
-                frame2 = cv2.flip(frame2, 1)
+                frame1 = cv2.flip(frame1, 1)
 
             # Small sleep to match FPS if needed, but processing usually takes time
             # time.sleep(1/FPS)
