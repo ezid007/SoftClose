@@ -314,18 +314,19 @@ class VideoRecorder:
                 # Let it stay True until recording stops (for 5 second grace period)
 
             # Add dB overlay to frame (BEFORE writing to file)
-            if self.audio_recorder:
-                db_text = f"{self.audio_recorder.current_db:.1f} dB"
-                cv2.putText(
-                    annotated_frame,
-                    db_text,
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (0, 255, 0),
-                    2,
-                    cv2.LINE_AA,
-                )
+            # dB overlay disabled
+            # if self.audio_recorder:
+            #     db_text = f"{self.audio_recorder.current_db:.1f} dB"
+            #     cv2.putText(
+            #         annotated_frame,
+            #         db_text,
+            #         (10, 30),
+            #         cv2.FONT_HERSHEY_SIMPLEX,
+            #         1,
+            #         (0, 255, 0),
+            #         2,
+            #         cv2.LINE_AA,
+            #     )
 
             # Store frames in buffer for pre-recording
             if len(self.frame_buffer) >= self.frame_buffer_size:
@@ -348,8 +349,8 @@ class VideoRecorder:
             if ret and self.flip_horizontal:
                 frame1 = cv2.flip(frame1, 1)
 
-            # Small sleep to match FPS if needed, but processing usually takes time
-            # time.sleep(1/FPS)
+            # FPS??맞춰 ?�상 ?�???�도 조절
+            time.sleep(1 / FPS)
 
     def start_recording(self):
         self.is_recording = True

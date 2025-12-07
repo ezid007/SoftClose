@@ -45,13 +45,15 @@ class AudioRecorder:
     def calculate_levels(self, audio_data):
         """Calculates both RMS (average) and Peak (max) decibel levels."""
         try:
-            data = np.frombuffer(audio_data, dtype=np.int16)
+            # Convert to float64 to prevent overflow in calculations
+            data = np.frombuffer(audio_data, dtype=np.int16).astype(np.float64)
 
             # Reference: maximum value for int16
             reference = 32768.0
 
-            # RMS Calculation
-            rms = np.sqrt(np.mean(data**2))
+            # RMS Calculation (using float64 to prevent overflow)
+            mean_square = np.mean(data**2)
+            rms = np.sqrt(mean_square) if mean_square > 0 else 0
             rms_db = 20 * np.log10(rms / reference) if rms > 0 else -96
 
             # Peak Calculation
