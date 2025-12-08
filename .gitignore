@@ -15,10 +15,6 @@ venv/
 ENV/
 env/
 
-# Environment variables
-.env
-.env.local
-
 # YOLO model files
 *.pt
 *.pth
