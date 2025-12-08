@@ -9,6 +9,8 @@ __pycache__/
 dist/
 build/
 
+*.env
+
 # Virtual Environment
 .venv/
 venv/
